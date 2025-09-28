@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LAN P2P Encrypted Chat</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --text-color: #e0e0e0;
+            --primary-color: #007bff;
+            --secondary-color: #2a2a2a;
+            --border-color: #444;
+            --message-sent-bg: #0056b3;
+            --message-received-bg: #3a3a3a;
+            --status-connected: #28a745;
+            --status-disconnected: #dc3545;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        h1, h2 {
+            text-align: center;
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+        .connection-steps {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .step {
+            flex: 1;
+            background-color: var(--secondary-color);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+        .step h3 {
+            margin-top: 0;
+            color: var(--text-color);
+        }
+        textarea {
+            width: 100%;
+            min-height: 80px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+        #status {
+            text-align: center;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            background-color: var(--status-disconnected);
+        }
+        .chat-box {
+            flex-grow: 1;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            overflow-y: auto;
+            background-color: var(--secondary-color);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .message {
+            padding: 10px 15px;
+            border-radius: 15px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+        .sent {
+            background-color: var(--message-sent-bg);
+            align-self: flex-end;
+            border-bottom-right-radius: 3px;
+        }
+        .received {
+            background-color: var(--message-received-bg);
+            align-self: flex-start;
+            border-bottom-left-radius: 3px;
+        }
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+        .chat-input input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            font-size: 16px;
+        }
+        .chat-section {
+            display: none;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>LAN Encrypted P2P Chat</h1>
+
+        <div id="connection-section">
+            <h2>Connection Setup</h2>
+            <div class="connection-steps">
+                <div class="step">
+                    <h3>Step 1: Create Offer (Peer 1)</h3>
+                    <p>Click to generate a connection offer. Copy the text and send it to your peer.</p>
+                    <button id="createOfferBtn">Create Offer</button>
+                    <textarea id="offerSdp" readonly placeholder="Offer text will appear here..."></textarea>
+                </div>
+
+                <div class="step">
+                    <h3>Step 2: Create Answer (Peer 2)</h3>
+                    <p>Paste the offer text from Peer 1 here, then click to create an answer.</p>
+                    <textarea id="offerSdpInput" placeholder="Paste offer text here..."></textarea>
+                    <button id="createAnswerBtn">Create Answer</button>
+                    <textarea id="answerSdp" readonly placeholder="Answer text will appear here..."></textarea>
+                </div>
+
+                <div class="step">
+                    <h3>Step 3: Accept Answer (Peer 1)</h3>
+                    <p>Paste the answer text from Peer 2 here and click to connect.</p>
+                    <textarea id="answerSdpInput" placeholder="Paste answer text here..."></textarea>
+                    <button id="acceptAnswerBtn">Accept Answer</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="status">Status: Disconnected</div>
+
+        <div class="chat-section" id="chat-section">
+            <div class="chat-box" id="chatBox">
+                </div>
+            <form class="chat-input" id="chatForm">
+                <input type="text" id="messageInput" placeholder="Type your message..." autocomplete="off" required>
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let peerConnection;
+        let dataChannel;
+
+        const createOfferBtn = document.getElementById('createOfferBtn');
+        const createAnswerBtn = document.getElementById('createAnswerBtn');
+        const acceptAnswerBtn = document.getElementById('acceptAnswerBtn');
+        const offerSdpText = document.getElementById('offerSdp');
+        const answerSdpText = document.getElementById('answerSdp');
+        const offerSdpInput = document.getElementById('offerSdpInput');
+        const answerSdpInput = document.getElementById('answerSdpInput');
+        const statusDiv = document.getElementById('status');
+        const chatSection = document.getElementById('chat-section');
+        const connectionSection = document.getElementById('connection-section');
+        const chatBox = document.getElementById('chatBox');
+        const chatForm = document.getElementById('chatForm');
+        const messageInput = document.getElementById('messageInput');
+
+        // WebRTC configuration - no STUN/TURN servers needed for simple LAN
+        const configuration = {};
+
+        const setupDataChannel = () => {
+            dataChannel.onopen = () => {
+                console.log("Data channel is open!");
+                updateStatus("Connected", true);
+                connectionSection.style.display = 'none';
+                chatSection.style.display = 'flex';
+            };
+
+            dataChannel.onclose = () => {
+                console.log("Data channel is closed.");
+                updateStatus("Disconnected", false);
+            };
+
+            dataChannel.onmessage = (event) => {
+                console.log("Message received:", event.data);
+                appendMessage(event.data, 'received');
+            };
+        };
+
+        const updateStatus = (text, isConnected) => {
+            statusDiv.textContent = `Status: ${text}`;
+            statusDiv.style.backgroundColor = isConnected ? 'var(--status-connected)' : 'var(--status-disconnected)';
+        };
+
+        const appendMessage = (message, type) => {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', type);
+            messageDiv.textContent = message;
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        };
+
+        createOfferBtn.onclick = async () => {
+            try {
+                peerConnection = new RTCPeerConnection(configuration);
+                dataChannel = peerConnection.createDataChannel("chat");
+                setupDataChannel();
+
+                // Wait for ICE gathering to complete
+                const offerPromise = new Promise((resolve) => {
+                    peerConnection.onicecandidate = (event) => {
+                        if (!event.candidate) {
+                           resolve();
+                        }
+                    };
+                });
+                
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                await offerPromise; // Wait for candidates to be gathered
+
+                offerSdpText.value = JSON.stringify(peerConnection.localDescription);
+            } catch (error) {
+                console.error("Error creating offer:", error);
+                alert("Error creating offer. Check the console for details.");
+            }
+        };
+
+        createAnswerBtn.onclick = async () => {
+            try {
+                const offer = JSON.parse(offerSdpInput.value);
+                if (!offer) {
+                    return alert("Please paste the offer from Peer 1 first.");
+                }
+
+                peerConnection = new RTCPeerConnection(configuration);
+                peerConnection.ondatachannel = (event) => {
+                    dataChannel = event.channel;
+                    setupDataChannel();
+                };
+
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                
+                 // Wait for ICE gathering to complete
+                const answerPromise = new Promise((resolve) => {
+                    peerConnection.onicecandidate = (event) => {
+                        if (!event.candidate) {
+                           resolve();
+                        }
+                    };
+                });
+
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                await answerPromise;
+
+                answerSdpText.value = JSON.stringify(peerConnection.localDescription);
+            } catch (error) {
+                console.error("Error creating answer:", error);
+                alert("Error creating answer. Is the offer text valid?");
+            }
+        };
+
+        acceptAnswerBtn.onclick = async () => {
+            try {
+                const answer = JSON.parse(answerSdpInput.value);
+                if (!answer) {
+                    return alert("Please paste the answer from Peer 2 first.");
+                }
+
+                if (!peerConnection) {
+                    return alert("Please create an offer first (Step 1).");
+                }
+
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+            } catch (error) {
+                console.error("Error accepting answer:", error);
+                alert("Error accepting answer. Is the answer text valid?");
+            }
+        };
+
+        chatForm.onsubmit = (e) => {
+            e.preventDefault();
+            const message = messageInput.value.trim();
+            if (message && dataChannel && dataChannel.readyState === 'open') {
+                dataChannel.send(message);
+                appendMessage(message, 'sent');
+                messageInput.value = '';
+            }
+        };
+
+    </script>
+</body>
+</html>
